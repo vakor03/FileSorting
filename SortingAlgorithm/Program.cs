@@ -8,6 +8,6 @@ randomFileGenerator.GenerateFileWithRandomInts("testKB.txt", new MemorySize(1, M
 
 ILogger logger = new ConsoleLogger();
 
-IFileSortingAlgorithm fileSortingAlgorithm = new NaturalFileSortingAlgorithm(logger);
+IFileSortingAlgorithm fileSortingAlgorithm = new BalancedFileSortingAlgorithm(logger);
 fileSortingAlgorithm.SortFile("testMB.txt");
 

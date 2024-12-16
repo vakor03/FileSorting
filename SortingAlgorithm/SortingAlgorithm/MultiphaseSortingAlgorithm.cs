@@ -27,7 +27,7 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
 
         string fileToMergeIn = filesB.Last();
 
-        for (int i = 0; i < 200; i++)
+        for (int i = 0;; i++)
         {
             logger.Log("");
 

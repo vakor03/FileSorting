@@ -22,7 +22,7 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
         FileSortingAlgorithmHelpers.CopyFileContents(path, fileAPath);
 
         DivideFileAInSeries(fileAPath, filesB.SkipLast(1).ToArray());
-        LogSeriesCountInFiles(filesB);
+        // LogSeriesCountInFiles(filesB);
         // PrintSeriesInFiles(filesB);
 
         string fileToMergeIn = filesB.Last();
@@ -33,7 +33,7 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
 
             _lastValues.Clear();
             MergeSeries(filesB, fileToMergeIn);
-            // LogSeriesCountInFiles(filesB);
+            LogSeriesCountInFiles(filesB);
             // PrintSeriesInFiles(filesB);
 
             if (filesB.Where(el => el != fileToMergeIn).All(IsFileEmpty))
@@ -75,7 +75,12 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
         long[] seriesCounts = new long[filesB.Length];
         for (int i = 0; i < filesB.Length; i++)
         {
-            seriesCounts[i] = CountSeriesInFile(filesB[i]);
+            using StreamReader reader = new(filesB[i]);
+            while (!reader.EndOfStream || _lastValues.ContainsKey(reader))
+            {
+                ReadSeriesNonAlloc(reader).Count();
+                seriesCounts[i]++;
+            }
         }
 
         logger.Log($"Series counts: {String.Join(", ", seriesCounts)}");
@@ -155,7 +160,7 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
 
                     // Writing the current value of the series to the file
                     currentWriter.WriteLine(minSeriesEnumerator.Current);
-                    
+
                     // Moving the enumerator to the next value. So that I am moving only pointer of current series
                     seriesHasNext[minSeriesEnumerator] = minSeriesEnumerator.MoveNext();
                 }
@@ -221,7 +226,7 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
         logger.Log("Total runs: " + totalRuns);
 
         int fileCount = filesB.Length;
-        
+
         // Computing fibonacci distribution required for the series
         long[] fibDist = _fibonacciCalculator.ComputeFibonacciDistribution(totalRuns, fileCount, m);
         logger.Log($"Fibonacci distribution: {String.Join(", ", fibDist)}");

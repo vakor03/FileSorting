@@ -1,9 +1,7 @@
 namespace SortingAlgorithm.SortingAlgorithm;
 
-public class NaturalFileSortingAlgorithm(ILogger logger) : IFileSortingAlgorithm
-{
-    public void SortFile(string path)
-    {
+public class NaturalFileSortingAlgorithm(ILogger logger) : IFileSortingAlgorithm {
+    public void SortFile(string path) {
         logger.Log("Starting natural file sorting algorithm");
 
         string naturalFileSortingTempFolder = "NaturalFileSortingTemp";
@@ -17,83 +15,78 @@ public class NaturalFileSortingAlgorithm(ILogger logger) : IFileSortingAlgorithm
         logger.Log("Copying file contents");
         FileSortingAlgorithmHelpers.CopyFileContents(path, fileAPath);
 
-        int seriesSize = 1;
-
-        while (true)
-        {
+        while (true) {
+            logger.Log("Dividing file A in series");
             DivideFileAInSeries(fileAPath: fileAPath, fileBPath: fileBPath, fileCPath: fileCPath);
 
             if (IsFileEmpty(fileBPath) || IsFileEmpty(fileCPath))
                 break;
 
+            logger.Log("Merging series");
             MergeSeries(fileAPath: fileAPath, fileBPath: fileBPath, fileCPath: fileCPath);
         }
     }
 
-    private void MergeSeries(string fileAPath, string fileBPath, string fileCPath)
-    {
+    private void MergeSeries(string fileAPath, string fileBPath, string fileCPath) {
         using (StreamWriter fileAWriter = new(fileAPath))
         using (StreamReader fileBReader = new(fileBPath))
-        using (StreamReader fileCReader = new(fileCPath))
-        {
-            while (!fileBReader.EndOfStream || !fileCReader.EndOfStream)
-            {
+        using (StreamReader fileCReader = new(fileCPath)) {
+            while (!fileBReader.EndOfStream || !fileCReader.EndOfStream || _lastValues.Count > 0) {
                 IEnumerable<int> seriesB = ReadSeriesNonAlloc(fileBReader);
                 IEnumerable<int> seriesC = ReadSeriesNonAlloc(fileCReader);
 
-                IEnumerator<int> seriesBEnumerator = seriesB.GetEnumerator();
-                IEnumerator<int> seriesCEnumerator = seriesC.GetEnumerator();
+                using IEnumerator<int> seriesBEnumerator = seriesB.GetEnumerator();
+                using IEnumerator<int> seriesCEnumerator = seriesC.GetEnumerator();
 
-                bool seriesBHasNext = true;
-                bool seriesCHasNext = true;
-                
-                while (true)
-                {
+                bool seriesBHasNext = seriesBEnumerator.MoveNext();
+                bool seriesCHasNext = seriesCEnumerator.MoveNext();
+
+                while (true) {
+                    // if (seriesBHasNext)
+                    //     logger.Log("seriesBEnumerator.Current: " + seriesBEnumerator.Current);
+                    //
+                    // if (seriesCHasNext)
+                    //     logger.Log("seriesCEnumerator.Current: " + seriesCEnumerator.Current);
+
                     if (!seriesBHasNext && !seriesCHasNext)
                         break;
 
-                    if (!seriesBHasNext)
-                    {
+                    if (!seriesBHasNext) {
                         fileAWriter.WriteLine(seriesCEnumerator.Current);
+                        seriesCHasNext = seriesCEnumerator.MoveNext();
                         continue;
                     }
 
-                    if (!seriesCHasNext)
-                    {
+                    if (!seriesCHasNext) {
                         fileAWriter.WriteLine(seriesBEnumerator.Current);
+                        seriesBHasNext = seriesBEnumerator.MoveNext();
                         continue;
                     }
 
-                    if (seriesBEnumerator.Current < seriesCEnumerator.Current)
-                    {
+                    if (seriesBEnumerator.Current < seriesCEnumerator.Current) {
                         fileAWriter.WriteLine(seriesBEnumerator.Current);
-                        continue;
+                        seriesBHasNext = seriesBEnumerator.MoveNext();
                     }
-
-                    fileAWriter.WriteLine(seriesCEnumerator.Current);
-
-                    seriesBHasNext = seriesBEnumerator.MoveNext();
-                    seriesCHasNext = seriesCEnumerator.MoveNext();
+                    else {
+                        fileAWriter.WriteLine(seriesCEnumerator.Current);
+                        seriesCHasNext = seriesCEnumerator.MoveNext();
+                    }
                 }
             }
         }
     }
 
-    private bool IsFileEmpty(string fileBPath)
-    {
+    private bool IsFileEmpty(string fileBPath) {
         using StreamReader fileBReader = new(fileBPath);
         return fileBReader.EndOfStream;
     }
 
-    private void DivideFileAInSeries(string fileAPath, string fileBPath, string fileCPath)
-    {
+    private void DivideFileAInSeries(string fileAPath, string fileBPath, string fileCPath) {
         using (StreamReader fileAReader = new StreamReader(fileAPath))
         using (StreamWriter fileBWriter = new StreamWriter(fileBPath))
-        using (StreamWriter fileCWriter = new StreamWriter(fileCPath))
-        {
+        using (StreamWriter fileCWriter = new StreamWriter(fileCPath)) {
             StreamWriter currentSeriesWriter = fileBWriter;
-            while (!fileAReader.EndOfStream)
-            {
+            while (!fileAReader.EndOfStream || _lastValues.Count > 0) {
                 IEnumerable<int> currentSeries = ReadSeriesNonAlloc(fileAReader);
 
                 foreach (int number in currentSeries)
@@ -104,25 +97,32 @@ public class NaturalFileSortingAlgorithm(ILogger logger) : IFileSortingAlgorithm
         }
     }
 
-    private IEnumerable<int> ReadSeriesNonAlloc(StreamReader fileAReader)
-    {
+    private readonly Dictionary<StreamReader, int> _lastValues = new();
+
+    private IEnumerable<int> ReadSeriesNonAlloc(StreamReader fileAReader) {
         int previousNumber = int.MinValue;
-        while (!fileAReader.EndOfStream)
-        {
+
+        if (_lastValues.TryGetValue(fileAReader, out int lastValue)) {
+            previousNumber = lastValue;
+            _lastValues.Remove(fileAReader);
+            yield return lastValue;
+        }
+
+        while (!fileAReader.EndOfStream) {
             string? line = fileAReader.ReadLine();
-            if (String.IsNullOrEmpty(line))
-                yield break;
 
-            int number = int.Parse(line);
+            if (int.TryParse(line, out int number)) {
+                if (number < previousNumber) {
+                    _lastValues[fileAReader] = number;
+                    break;
+                }
 
-            if (number < previousNumber)
-            {
-                fileAReader.BaseStream.Seek(-line.Length, SeekOrigin.Current);
-                break;
+                yield return number;
+                previousNumber = number;
             }
-
-            yield return number;
-            previousNumber = number;
+            else {
+                logger.Log($"Failed to parse line: {line}");
+            }
         }
     }
 }

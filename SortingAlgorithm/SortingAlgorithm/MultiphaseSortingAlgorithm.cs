@@ -1,6 +1,6 @@
 namespace SortingAlgorithm.SortingAlgorithm;
 
-public class MultiphaseSortingAlgorithm(ILogger logger, int m = 4) : IFileSortingAlgorithm
+public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortingAlgorithm
 {
     private readonly Dictionary<StreamReader, int> _lastValues = new();
     private readonly FibonacciCalculator _fibonacciCalculator = new FibonacciCalculator();
@@ -33,7 +33,7 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 4) : IFileSortin
 
             _lastValues.Clear();
             MergeSeries(filesB, fileToMergeIn);
-            LogSeriesCountInFiles(filesB);
+            // LogSeriesCountInFiles(filesB);
             // PrintSeriesInFiles(filesB);
 
             if (filesB.Where(el => el != fileToMergeIn).All(IsFileEmpty))

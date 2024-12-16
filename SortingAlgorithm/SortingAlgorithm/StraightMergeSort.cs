@@ -33,8 +33,8 @@ public class StraightMergeSort(ILogger logger) : IFileSortingAlgorithm {
 
     private static void DivideFileAInSeries(string fileBPath, string fileCPath, string fileAPath, int seriesSize) {
         int i = 0;
-        using (BufferedStreamWriter fileBWriter = new BufferedStreamWriter(fileBPath))
-        using (BufferedStreamWriter fileCWriter = new BufferedStreamWriter(fileCPath))
+        using (StreamWriter fileBWriter = new StreamWriter(fileBPath))
+        using (StreamWriter fileCWriter = new StreamWriter(fileCPath))
         using (StreamReader fileAReader = new StreamReader(fileAPath)) {
             while (!fileAReader.EndOfStream) {
                 string? line = fileAReader.ReadLine();
@@ -55,7 +55,7 @@ public class StraightMergeSort(ILogger logger) : IFileSortingAlgorithm {
     private static void MergeSeries(string fileBPath, string fileCPath, string fileAPath, int seriesSize) {
         using (StreamReader fileBReader = new StreamReader(fileBPath))
         using (StreamReader fileCReader = new StreamReader(fileCPath))
-        using (BufferedStreamWriter fileAWriter = new BufferedStreamWriter(fileAPath)) {
+        using (StreamWriter fileAWriter = new StreamWriter(fileAPath)) {
             List<int> seriesB = new(seriesSize);
             List<int> seriesC = new(seriesSize);
 
@@ -76,7 +76,7 @@ public class StraightMergeSort(ILogger logger) : IFileSortingAlgorithm {
         }
     }
 
-    private static void WriteSortedSeriesToFile(List<int> seriesB, List<int> seriesC, BufferedStreamWriter fileAWriter, out int indexB, out int indexC) {
+    private static void WriteSortedSeriesToFile(List<int> seriesB, List<int> seriesC, StreamWriter fileAWriter, out int indexB, out int indexC) {
         indexB = 0;
         indexC = 0;
         while (indexB < seriesB.Count && indexC < seriesC.Count)
@@ -90,7 +90,7 @@ public class StraightMergeSort(ILogger logger) : IFileSortingAlgorithm {
             }
     }
 
-    private static void AddLeftoverSeries(int indexB, List<int> seriesB, BufferedStreamWriter fileAWriter) {
+    private static void AddLeftoverSeries(int indexB, List<int> seriesB, StreamWriter fileAWriter) {
         while (indexB < seriesB.Count) {
             fileAWriter.WriteLine(seriesB[indexB]);
             indexB++;

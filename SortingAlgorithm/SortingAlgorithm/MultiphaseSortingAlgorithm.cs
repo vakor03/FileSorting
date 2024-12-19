@@ -24,6 +24,7 @@ public class MultiphaseSortingAlgorithm(ILogger logger, FileChunkSorter fileChun
         CleanFile(fileAPath);
 
         fileChunkSorter.SortFileInChunks(path, fileAPath);
+        // FileSortingAlgorithmHelpers.CopyFileContents(path, fileAPath); // Uncomment to disable fileChunkSorter
 
         DivideFileAInSeries(fileAPath, filesB.SkipLast(1).ToArray());
         // LogSeriesCountInFiles(filesB);

@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Text;
+
 namespace SortingAlgorithm.SortingAlgorithm;
 
 public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortingAlgorithm
@@ -30,10 +33,13 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
         for (int i = 0;; i++)
         {
             logger.Log("");
+            logger.Log($"Iteration {i}");
+            Stopwatch stopwatch = new();
+            stopwatch.Start();
 
             _lastValues.Clear();
             MergeSeries(filesB, fileToMergeIn);
-            LogSeriesCountInFiles(filesB);
+            // LogSeriesCountInFiles(filesB);
             // PrintSeriesInFiles(filesB);
 
             if (filesB.Where(el => el != fileToMergeIn).All(IsFileEmpty))
@@ -44,6 +50,8 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
 
             //
             fileToMergeIn = filesB.First(IsFileEmpty);
+            stopwatch.Stop();
+            logger.Log($"Iteration {i} took {stopwatch.Elapsed.TotalSeconds} s");
         }
     }
 
@@ -105,14 +113,33 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
 
     private void MergeSeries(string[] filesB, string fileToMergeIn, int count = 8)
     {
+        Stopwatch stopwatch = new();
+
         Dictionary<string, int> numbersToClear = new();
-        using (StreamWriter currentWriter = new StreamWriter(fileToMergeIn))
+        const int BufferSize = 65536*4; // 64 KB, adjust as necessary
+
+        // Create a FileStream for writing with a larger buffer.
+        // Using FileMode.Create to ensure we're writing a new file
+        using (var fsOut = new FileStream(fileToMergeIn, FileMode.Create, FileAccess.Write, FileShare.None, BufferSize))
+        using (StreamWriter currentWriter = new StreamWriter(fsOut, Encoding.UTF8, BufferSize))
         {
             // Taking all non-empty files except the file to merge in
             string[] files = filesB.Where(el => el != fileToMergeIn && !IsFileEmpty(el)).ToArray();
 
-            // Creating a dictionary of file readers and their file names
-            Dictionary<StreamReader, string> fileNamesDict = files.ToDictionary(el => new StreamReader(el), el => el);
+            
+            stopwatch.Restart();
+            // Creating dictionary of StreamReaders with larger buffers
+            var fileNamesDict = files.ToDictionary(
+                el => new StreamReader(
+                    new FileStream(el, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize),
+                    Encoding.UTF8,
+                    detectEncodingFromByteOrderMarks: false,
+                    bufferSize: BufferSize),
+                el => el
+            );
+            
+            stopwatch.Stop();
+            logger.Log($"Opening files took {stopwatch.Elapsed.TotalSeconds} s");
 
             int totalSeriesCount = 0;
             while (fileNamesDict.Keys.All(el => !el.EndOfStream || _lastValues.ContainsKey(el)))
@@ -120,70 +147,110 @@ public class MultiphaseSortingAlgorithm(ILogger logger, int m = 3) : IFileSortin
                 totalSeriesCount++;
 
                 // Creating a dictionary of series and their file names
-                // I needed enumerables, so that I do not need to store the series in memory
                 Dictionary<IEnumerable<int>, StreamReader> seriesDict =
                     fileNamesDict.ToDictionary(el => ReadSeriesNonAlloc(el.Key), el => el.Key);
 
-                // Creating a dictionary of series enumerators and their series
-                // I needed enumerators, so that I can get the current value of the series
+                // Creating enumerators for each series
                 Dictionary<IEnumerator<int>, IEnumerable<int>> enumeratorsDict =
                     seriesDict.ToDictionary(el => el.Key.GetEnumerator(), el => el.Key);
 
-                // Creating a dictionary of series enumerators and their hasNext values
-                // HasNext is used to check if the enumerator has more values. For example if serie is empty, it is false in here
-                Dictionary<IEnumerator<int>, bool> seriesHasNext =
-                    enumeratorsDict.Keys.ToDictionary(el => el, el => el.MoveNext());
+                Dictionary<IEnumerator<int>, bool> seriesHasNext = new();
+                FillDictionaryWithEnumeratorValues(seriesHasNext, enumeratorsDict);
 
-
-                // I serie is empty, I want to delete the line from this file later
-                foreach (var (key, value) in seriesHasNext)
+                // Track empty series for later removal
+                foreach (var (enumerator, hasNext) in seriesHasNext)
                 {
-                    if (!value)
+                    if (!hasNext)
                     {
-                        string file = fileNamesDict[seriesDict[enumeratorsDict[key]]];
+                        string file = fileNamesDict[seriesDict[enumeratorsDict[enumerator]]];
                         if (!numbersToClear.TryAdd(file, 1)) numbersToClear[file]++;
                     }
                 }
 
-                // Merging series
+                // Merge series
                 while (seriesHasNext.Any(el => el.Value))
                 {
-                    IEnumerator<int> minSeriesEnumerator = seriesHasNext
-                        .Where(el => el.Value)
-                        .OrderBy(el => el.Key.Current)
-                        .First()
-                        .Key;
+                    // Find the minimum current value from active series
+                    IEnumerator<int> minSeriesEnumerator = FindIEnumeratorWithMinCurrent(seriesHasNext);
 
-                    // This if statement is used to count how many numbers I need to delete from the file later
                     string file = fileNamesDict[seriesDict[enumeratorsDict[minSeriesEnumerator]]];
                     if (!numbersToClear.TryAdd(file, 1)) numbersToClear[file]++;
 
-                    // Writing the current value of the series to the file
                     currentWriter.WriteLine(minSeriesEnumerator.Current);
 
-                    // Moving the enumerator to the next value. So that I am moving only pointer of current series
-                    seriesHasNext[minSeriesEnumerator] = minSeriesEnumerator.MoveNext();
+                    // Move the enumerator forward
+                    MoveEnumeratorNext(seriesHasNext, minSeriesEnumerator);
                 }
 
-                // Disposing all series enumerators
+                // Dispose all enumerators
                 foreach (IEnumerator<int> seriesEnumerator in enumeratorsDict.Keys)
                     seriesEnumerator.Dispose();
+                
+                // _currentValueCache.Clear();
+                seriesHasNext.Clear();
             }
 
             logger.Log($"Total series count: {totalSeriesCount}");
 
-            // Disposing all file readers
+            
+            stopwatch.Restart();
+            // Dispose all file readers
             foreach (StreamReader streamReader in fileNamesDict.Keys)
                 streamReader.Dispose();
+            stopwatch.Stop();
+            logger.Log($"Closing files took {stopwatch.Elapsed.TotalSeconds} s");
         }
-
+        
+        stopwatch.Restart();
         foreach (var (key, value) in numbersToClear)
         {
-            // Because we "moving" some lines to another file, we need to delete them from the original file
+            // Remove the processed lines from the original files
             RemoveFirstNLinesEfficiently(key, value);
-            // logger.Log($"Clearing {value} numbers from {key}");
+        }
+        stopwatch.Stop();
+        logger.Log($"Removing lines took {stopwatch.Elapsed.TotalSeconds} s");
+    }
+
+    private void FillDictionaryWithEnumeratorValues(Dictionary<IEnumerator<int>,bool> seriesHasNext, Dictionary<IEnumerator<int>,IEnumerable<int>> enumeratorsDict) {
+        foreach ((IEnumerator<int> key, IEnumerable<int>? value) in enumeratorsDict) {
+            bool moveNext = key.MoveNext();
+            seriesHasNext.Add(key, moveNext);
+            // if (moveNext) {
+                // _currentValueCache[key] = key.Current;
+            // }
         }
     }
+
+    // private Dictionary<IEnumerator<int>, int> _currentValueCache = new();
+
+    private void MoveEnumeratorNext(Dictionary<IEnumerator<int>, bool> seriesHasNext, IEnumerator<int> minSeriesEnumerator) {
+        bool moveNext = minSeriesEnumerator.MoveNext();
+        seriesHasNext[minSeriesEnumerator] = moveNext;
+        // if (moveNext)
+            // _currentValueCache[minSeriesEnumerator] = minSeriesEnumerator.Current;
+    }
+
+    // private int GetCurrentValueForEnumerator(IEnumerator<int> enumerator) =>
+    //     _currentValueCache[enumerator];
+
+    private IEnumerator<int> FindIEnumeratorWithMinCurrent(Dictionary<IEnumerator<int>, bool> seriesHasNext)
+    {
+        IEnumerator<int> enumeratorWithSmallestValue = null;
+        int smallestValue = int.MaxValue;
+        
+        foreach (var (enumerator, hasNext) in seriesHasNext)
+        {
+            if (!hasNext) continue;
+            if (enumerator.Current < smallestValue)
+            {
+                enumeratorWithSmallestValue = enumerator;
+                smallestValue = enumerator.Current;
+            }
+        }
+        
+        return enumeratorWithSmallestValue;
+    }
+
 
     private void RemoveFirstNLinesEfficiently(string filePath, int n)
     {
